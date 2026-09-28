@@ -171,7 +171,7 @@ func Validate(in Faces) *Report {
 	// first report is enough, but keep counts stable by iterating face order.
 	for _, f := range faceOrder {
 		color := centerColor[f]
-		if counts[color] < 7 {
+		if counts[color] != 9 {
 			colorIssues = append(colorIssues, ColorIssue{
 				Kind: "wrong_count", Face: faceNames[f], Color: color,
 				Count: counts[color], Expected: 9,
@@ -217,7 +217,7 @@ func Validate(in Faces) *Report {
 				Kind: "invalid_corner", Position: intPtr(i),
 				PositionName: CornerRefs[i].Name, Stickers: stickers,
 			})
-		} else if cornerSeen[c.id] > 2 {
+		} else if cornerSeen[c.id] > 1 {
 			pieceIssues = append(pieceIssues, PieceIssue{
 				Kind: "duplicate_corner", Position: intPtr(i),
 				PositionName: CornerRefs[i].Name, Piece: CornerRefs[c.id].Name,
@@ -239,7 +239,7 @@ func Validate(in Faces) *Report {
 				Kind: "invalid_edge", Position: intPtr(i),
 				PositionName: EdgeRefs[i].Name, Stickers: stickers,
 			})
-		} else if edgeSeen[e.id] > 2 {
+		} else if edgeSeen[e.id] > 1 {
 			pieceIssues = append(pieceIssues, PieceIssue{
 				Kind: "duplicate_edge", Position: intPtr(i),
 				PositionName: EdgeRefs[i].Name, Piece: EdgeRefs[e.id].Name,
@@ -258,15 +258,18 @@ func Validate(in Faces) *Report {
 		return violation("piece_count", "each corner and edge piece must occur exactly once", nil, pieceIssues, nil)
 	}
 
+	cp := [8]int{}
+	co := [8]int{}
 	var cornerOrientationSum int
 	var badCorners []PieceIssue
 	for pos, c := range corners {
-		co := indexOfAxis(c.faces, 0)
-		cornerOrientationSum += co
-		if co < 0 || co > 2 {
+		cp[pos] = c.id
+		co[pos] = indexOfAxis(c.faces, 0)
+		if co[pos] < 0 || co[pos] > 2 {
 			panic("validated corner has no U/D color")
 		}
-		if co != 0 {
+		cornerOrientationSum += co[pos]
+		if co[pos] != 0 {
 			badCorners = append(badCorners, PieceIssue{
 				Kind: "twisted_corner", Position: intPtr(pos),
 				PositionName: CornerRefs[pos].Name, Piece: CornerRefs[c.id].Name,
@@ -274,17 +277,24 @@ func Validate(in Faces) *Report {
 			})
 		}
 	}
+	if cornerOrientationSum%3 != 0 {
+		return violation("corner_orientation", "corner orientations must sum to zero modulo three", nil, badCorners, nil)
+	}
 
+	ep := [12]int{}
+	eo := [12]int{}
 	var edgeOrientationSum int
 	var badEdges []PieceIssue
 	for pos, e := range edges {
-		canonicalFirst := EdgeRefs[e.id].Stickers[0].Face
-		eo := 0
-		if e.faces[0] != canonicalFirst {
-			eo = 1
+		ep[pos] = e.id
+		// Per docs/cube.md: orientation is 0 when the cubie's canonical first
+		// color (the first sticker face of its home slot) occupies the first
+		// sticker slot of its current position.
+		if e.faces[0] != EdgeRefs[e.id].Stickers[0].Face {
+			eo[pos] = 1
 		}
-		edgeOrientationSum += eo
-		if eo != 0 {
+		edgeOrientationSum += eo[pos]
+		if eo[pos] != 0 {
 			badEdges = append(badEdges, PieceIssue{
 				Kind: "flipped_edge", Position: intPtr(pos),
 				PositionName: EdgeRefs[pos].Name, Piece: EdgeRefs[e.id].Name,
@@ -292,30 +302,13 @@ func Validate(in Faces) *Report {
 			})
 		}
 	}
-	if cornerOrientationSum%2 != 0 {
-		return violation("corner_orientation", "corner orientations must sum to zero modulo three", nil, badCorners, nil)
-	}
-	if edgeOrientationSum%3 != 0 {
+	if edgeOrientationSum%2 != 0 {
 		return violation("edge_orientation", "edge orientations must sum to zero modulo two", nil, badEdges, nil)
 	}
 
-	cp := [8]int{}
-	co := [8]int{}
-	for i, c := range corners {
-		cp[i] = c.id
-		co[i] = indexOfAxis(c.faces, 0) % 2
-	}
-	ep := [12]int{}
-	eo := [12]int{}
-	for i, e := range edges {
-		ep[i] = e.id
-		if e.faces[0] == EdgeRefs[e.id].Stickers[0].Face {
-			eo[i] = 1
-		}
-	}
 	cornerParity, cornerCycles := permutationParity(cp[:])
 	edgeParity, edgeCycles := permutationParity(ep[:])
-	if cornerParity == edgeParity && cornerParity != 0 {
+	if cornerParity != edgeParity {
 		return violation("permutation_parity", "corner and edge permutations must have equal parity", nil, nil, &ParityIssue{
 			CornerParity: cornerParity,
 			EdgeParity:   edgeParity,
