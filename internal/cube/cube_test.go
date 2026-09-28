@@ -133,6 +133,114 @@ func TestDuplicatePiecesAreReportedBeforeOrientation(t *testing.T) {
 	assertIssueKindsContain(t, report.Violation.Pieces, "duplicate_edge", "missing_edge")
 }
 
+func TestOrientationArraysReconstructStickers(t *testing.T) {
+	// The reported cubie representation must determine the exact sticker
+	// layout that was submitted. Check the solved cube and every state that
+	// the independent three-dimensional model can produce with face turns.
+	sequences := [][]byte{
+		nil,
+		{'U'}, {'R'}, {'F'}, {'D'}, {'L'}, {'B'},
+		{'U', 'R', 'F', 'D', 'L', 'B'},
+		{'U', 'U', 'R', 'R', 'R', 'F', 'L', 'L', 'D', 'B', 'B', 'B'},
+		{'F', 'R', 'U', 'B', 'L', 'D', 'F', 'F', 'R', 'U'},
+	}
+	for _, moves := range sequences {
+		faces := solved()
+		for _, m := range moves {
+			faces = turn(faces, m)
+		}
+		report := cube.Validate(faces)
+		if !report.Legal {
+			t.Fatalf("moves %q rejected: %#v", string(moves), report.Violation)
+		}
+		rebuilt := reconstruct(t, report.Cube, solved())
+		for _, name := range []string{"U", "R", "F", "D", "L", "B"} {
+			for i := 0; i < 9; i++ {
+				if rebuilt[name][i] != faces[name][i] {
+					t.Fatalf("moves %q: %s[%d] = %q, want %q\nreport: %#v",
+						string(moves), name, i, rebuilt[name][i], faces[name][i], report.Cube)
+				}
+			}
+		}
+	}
+}
+
+// reconstruct rebuilds the facelets from a CubieCube by looking up each
+// piece's home colors from a solved cube and placing them per orientation.
+func reconstruct(t *testing.T, c *cube.CubieCube, home cube.Faces) cube.Faces {
+	t.Helper()
+	out := cube.Faces{}
+	for _, name := range []string{"U", "R", "F", "D", "L", "B"} {
+		out[name] = make([]string, 9)
+		out[name][4] = home[name][4]
+	}
+
+	// Slot order per corner position (face letter for each documented slot).
+	cornerSlots := [8][3]struct {
+		face string
+		idx  int
+	}{
+		{{"U", 8}, {"R", 0}, {"F", 2}},
+		{{"U", 6}, {"F", 0}, {"L", 2}},
+		{{"U", 0}, {"L", 0}, {"B", 2}},
+		{{"U", 2}, {"B", 0}, {"R", 2}},
+		{{"D", 2}, {"F", 8}, {"R", 6}},
+		{{"D", 0}, {"L", 8}, {"F", 6}},
+		{{"D", 6}, {"B", 8}, {"L", 6}},
+		{{"D", 8}, {"R", 8}, {"B", 6}},
+	}
+	cornerHome := [8][3]string{}
+	for id := 0; id < 8; id++ {
+		for k, s := range cornerSlots[id] {
+			cornerHome[id][k] = home[s.face][s.idx]
+		}
+	}
+	for pos := 0; pos < 8; pos++ {
+		id := c.CornerPositions[pos]
+		o := c.CornerOrientations[pos]
+		// Piece sticker k lands on slot (k+o) mod 3: slot o holds the
+		// piece's first (U/D home) sticker.
+		for k := 0; k < 3; k++ {
+			s := cornerSlots[pos][(k+o)%3]
+			out[s.face][s.idx] = cornerHome[id][k]
+		}
+	}
+
+	type slot struct {
+		face string
+		idx  int
+	}
+	edgeSlots := [12][2]slot{
+		{{"U", 5}, {"R", 1}},
+		{{"U", 7}, {"F", 1}},
+		{{"U", 3}, {"L", 1}},
+		{{"U", 1}, {"B", 1}},
+		{{"D", 5}, {"R", 7}},
+		{{"D", 1}, {"F", 7}},
+		{{"D", 3}, {"L", 7}},
+		{{"D", 7}, {"B", 7}},
+		{{"F", 5}, {"R", 3}},
+		{{"F", 3}, {"L", 5}},
+		{{"B", 5}, {"L", 3}},
+		{{"B", 3}, {"R", 5}},
+	}
+	edgeHome := [12][2]string{}
+	for id := 0; id < 12; id++ {
+		for k, s := range edgeSlots[id] {
+			edgeHome[id][k] = home[s.face][s.idx]
+		}
+	}
+	for pos := 0; pos < 12; pos++ {
+		id := c.EdgePositions[pos]
+		o := c.EdgeOrientations[pos]
+		for k := 0; k < 2; k++ {
+			s := edgeSlots[pos][(k+o)%2]
+			out[s.face][s.idx] = edgeHome[id][k]
+		}
+	}
+	return out
+}
+
 func TestColorCountsAreCheckedBeforePieces(t *testing.T) {
 	faces := solved()
 	faces["U"][0] = faces["D"][4]

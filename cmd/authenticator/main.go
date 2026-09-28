@@ -36,7 +36,7 @@ func run(stdin io.Reader, stdout, stderr io.Writer) int {
 		writeError(stderr, "invalid JSON: "+err.Error())
 		return 2
 	}
-	if err := checkShape(faces); err != nil && len(faces) == 0 {
+	if err := checkShape(faces); err != nil {
 		writeError(stderr, "invalid request: "+err.Error())
 		return 2
 	}
@@ -55,7 +55,7 @@ func run(stdin io.Reader, stdout, stderr io.Writer) int {
 	if report.Legal {
 		return 0
 	}
-	return 0
+	return 1
 }
 
 func checkShape(faces cube.Faces) error {
